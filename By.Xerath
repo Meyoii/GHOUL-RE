@@ -1,0 +1,190 @@
+# GHOUL-RE
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+local forwardDirection = rootPart.CFrame.LookVector
+local targetPosition = rootPart.Position + (forwardDirection * 15)
+
+-- สั่งให้เดินไปยังตำแหน่งนั้น
+humanoid:MoveTo(targetPosition)
+
+
+local TweenService = game:GetService("TweenService")
+local player = game.Players.LocalPlayer
+local workspace = game:GetService("Workspace")
+local runService = game:GetService("RunService")
+local dataRemoteEvent = game:GetService("ReplicatedStorage").Bridgenet2Main.dataRemoteEvent
+
+local tween = nil
+local isTweening = false  -- ตัวแปรสำหรับตรวจสอบสถานะการทำงานของ tween
+
+-- ฟังก์ชันในการค้นหามอนสเตอร์
+local function findMonster()
+    for _, entity in pairs(workspace.Entities:GetChildren()) do
+        if string.match(entity.Name, "^Eto_") or string.match(entity.Name, "^Noro_") or string.match(entity.Name, "^Tatara_") then
+            return entity
+        end
+    end
+    return nil
+end
+
+-- ฟังก์ชันในการสร้าง tween และเล่น
+local function startTweenToMonster(targetMonster, playerHRP)
+    if targetMonster and targetMonster:FindFirstChild("HumanoidRootPart") then
+        local targetPosition = targetMonster.HumanoidRootPart.Position
+
+        -- สร้าง Goal และ TweenInfo
+        local goal = {Position = targetPosition}
+        local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+
+        -- สร้าง Tween
+        tween = TweenService:Create(playerHRP, tweenInfo, goal)
+        tween:Play()
+
+        -- แสดงข้อความว่าทำการ tween แล้ว
+        tween.Completed:Connect(function()
+            print("Tween completed!")
+            tween = nil
+            isTweening = false  -- เมื่อเสร็จสิ้น ให้สถานะกลับเป็น false
+        end)
+    end
+end
+
+-- ฟังก์ชันการหยุดการ tween
+local function stopTween()
+    if tween then
+        tween:Cancel()
+        print("Tween stopped due to low health.")
+        tween = nil
+        isTweening = false  -- เมื่อหยุดแล้ว ก็กลับให้สถานะเป็น false
+    end
+end
+
+local function startTracking(character)
+    -- รอจนกว่าจะมี HumanoidRootPart และ Humanoid
+    local playerHRP = character:WaitForChild("HumanoidRootPart")
+    local humanoid = character:WaitForChild("Humanoid")
+
+    -- ตรวจสอบตลอดเวลาว่าเลือดต่ำกว่า 51% หรือไม่
+    runService.Heartbeat:Connect(function()
+        local healthPercentage = (humanoid.Health / humanoid.MaxHealth) * 100
+
+        if healthPercentage < 51 then
+            stopTween()
+        else
+            local targetMonster = findMonster()
+            if targetMonster and not isTweening then  -- ถ้าไม่กำลัง tween ก็เริ่มทำงาน
+                startTweenToMonster(targetMonster, playerHRP)
+                isTweening = true  -- ตั้งค่าให้สถานะเป็น true ว่ากำลังทำการ tween
+            end
+        end
+    end)
+end
+
+-- ฟังก์ชันเพื่อตั้งค่าการทำงานเมื่อผู้เล่นเกิดใหม่
+local function onCharacterAdded(character)
+    stopTween()  -- หยุดการทำงานเก่าก่อน
+    startTracking(character)  -- เริ่มการติดตามใหม่
+end
+
+-- เชื่อมต่อกับเหตุการณ์ CharacterAdded เพื่อเริ่มทำงานเมื่อเกิดใหม่
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- ฟังก์ชันการควบคุมการทำงานของ RemoteEvent
+local function fireEvent()
+    local args = {
+        [1] = {
+            [1] = {
+                ["Module"] = "Toggle",
+                ["IsHolding"] = false
+            },
+            [2] = "\5"
+        }
+    }
+    dataRemoteEvent:FireServer(unpack(args))
+end
+
+-- เรียกใช้ฟังก์ชันเมื่อผู้เล่นเกิดใหม่
+player.CharacterAdded:Connect(function(character)
+    task.wait(1) -- รอให้โหลดตัวละครก่อน (ปรับค่าได้)
+    fireEvent()
+end)
+
+-- เรียกใช้ฟังก์ชันครั้งแรกเมื่อโหลดสคริปต์
+if player.Character then
+    task.wait(1) -- รอให้โหลดตัวละครก่อน
+    fireEvent()
+end
+
+-- ฟังก์ชันการทำงานของลูป
+local function loopScript()
+    while true do
+        local args = {
+            [1] = {
+                [1] = {
+                    ["Module"] = "M1"
+                },
+                [2] = "\5"
+            }
+        }
+
+        dataRemoteEvent:FireServer(unpack(args))
+        task.wait(0.1) -- ปรับเวลาตามต้องการ
+    end
+end
+
+local function startScript()
+    task.spawn(loopScript) -- เริ่มลูปใหม่หลังตาย
+end
+
+-- เรียกใช้การทำงานเมื่อเกิดใหม่
+player.CharacterAdded:Connect(startScript)
+startScript() -- เริ่มสคริปต์ครั้งแรก
+
+-- ฟังก์ชันวาปลงไปตาย
+local function setupCharacter(character)
+    -- ตรวจสอบว่ามี Humanoid และ HumanoidRootPart หรือไม่
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+    -- ถ้าพบ Humanoid และ RootPart ให้เชื่อมต่อกับ HealthChanged
+    if humanoid and rootPart then
+        humanoid.HealthChanged:Connect(function(health)
+            if health <= (humanoid.MaxHealth * 0.5) then  -- ตรวจสอบว่าเลือดเหลือ 50%
+                local targetPosition = rootPart.Position
+                targetPosition = Vector3.new(targetPosition.X, -1100, targetPosition.Z)  -- ตั้งค่าความสูง -1000
+                
+                local tweenInfo = TweenInfo.new(3.5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)  -- กำหนดเวลาทำ Tween 3 วินาที
+                local tween = TweenService:Create(rootPart, tweenInfo, {Position = targetPosition})
+                tween:Play()
+
+                -- เมื่อการวาปเสร็จสิ้นให้หยุดการทำงานของฟังก์ชันวาปไปหาเอโตะ
+                tween.Completed:Connect(function()
+                    print("Teleport completed!")
+                    isTweening = false  -- ฟังก์ชันวาปไปหาเอโตะจะหยุดทำงาน
+                end)
+            end
+        end)
+    end
+end
+
+-- ฟังก์ชันเพื่อตรวจสอบตัวละครหลังจากเกิดใหม่
+local function onCharacterAdded(character)
+    -- รอให้ตัวละครมี Humanoid และ HumanoidRootPart ก่อน
+    repeat
+        wait(0.1)
+    until character:FindFirstChildOfClass("Humanoid") and character:FindFirstChild("HumanoidRootPart")
+    
+    setupCharacter(character)
+end
+
+-- เริ่มทำงานฟังก์ชันเมื่อเกิดใหม่
+if player.Character then
+    onCharacterAdded(player.Character)
+end
+
+-- เชื่อมต่อกับเหตุการณ์ CharacterAdded
+player.CharacterAdded:Connect(onCharacterAdded)
